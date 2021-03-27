@@ -1,0 +1,66 @@
+name: default
+kind: pipeline
+type: kubernetes
+
+trigger:
+  branches:
+    - master
+  event:
+    - push
+
+steps:
+
+  - name: "build"
+    image: docker:stable-dind
+    volumes:
+      - name: docker
+        path: /var/run/
+    commands:
+      - docker build -t faucet-waves-loans:${DRONE_COMMIT_SHA:0:7} .
+
+
+  - name: "Package"
+    image: dtzar/helm-kubectl:3.4.0
+    volumes:
+      - name: manifestPath
+        path: /manifest
+      - name: packagePath
+        path: /package
+
+    commands:
+      - helm package --app-version ${DRONE_COMMIT_SHA:0:7} /manifest/faucet-waves-loans -d /package/faucet-waves-loans
+      - mv /package/faucet-waves-loans/faucet-waves-loans-0.1.0.tgz /package/faucet-waves-loans/faucet-waves-loans-${DRONE_COMMIT_SHA:0:7}.tgz
+
+
+
+  - name: deploy
+    image: pelotech/drone-helm3
+
+    volumes:
+      - name: packagePath
+        path: /home/package/
+    settings:
+      helm_command: upgrade
+      chart: /home/package/faucet-waves-loans/faucet-waves-loans-${DRONE_COMMIT_SHA:0:7}.tgz
+      namespace: waves-loans
+      release: faucet-waves-loans
+      kube_service_account: drone-ci-ath
+      api_server:
+        from_secret: prod_api_server
+      kubernetes_token:
+        from_secret: prod_kubernetes_token
+      kube_certificate:
+        from_secret: prod_kube_certificate
+
+volumes:
+- name: docker
+  host:
+    path: /var/run/
+
+- name: manifestPath
+  host:
+    path: /home/manifest
+
+- name: packagePath
+  host:
+    path: /home/package
